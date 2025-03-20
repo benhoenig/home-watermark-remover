@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LaMa Inpainting | AI Image Restoration</title>
+    <meta name="description" content="LaMa Inpainting with TensorFlow.js - Remove unwanted objects from images using AI">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎨</text></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0"></script>
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #2E7D32;
+            --text-color: #333;
+            --light-gray: #f5f5f5;
+            --border-color: #ddd;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--light-gray);
+        }
+        
+        h1 {
+            margin: 20px 0;
+            text-align: center;
+            color: #222;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            font-weight: 500;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        button:hover {
+            background: var(--secondary-color);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .file-input-label {
+            padding: 10px 20px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-block;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .file-input-label:hover {
+            background: var(--secondary-color);
+        }
+        
+        .canvas-container {
+            width: 100%;
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .canvas-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: block;
+        }
+        
+        canvas {
+            width: 100%;
+            display: block;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+            background-color: #f8f9fa;
+            border: 1px solid var(--border-color);
+        }
+        
+        .brush-controls {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .brush-size-label {
+            font-weight: 500;
+        }
+        
+        #brushSize {
+            width: 150px;
+        }
+        
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        .loading.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid var(--border-color);
+            border-top: 5px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .canvas-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .canvas-item {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        @media (max-width: 768px) {
+            .canvas-row {
+                flex-direction: column;
+            }
+            
+            canvas {
+                height: auto;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            button, .file-input-label {
+                width: 100%;
+                text-align: center;
+            }
+        }
+        
+        footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>LaMa Inpainting with TensorFlow.js</h1>
+    
+    <div class="container">
+        <div class="controls">
+            <label class="file-input-label" for="imageInput">Choose Image</label>
+            <input type="file" id="imageInput" accept="image/*">
+            <button id="loadModel">Load Model</button>
+            <button id="runInference" disabled>Run Inpainting</button>
+            <button id="clearMask" disabled>Clear Mask</button>
+            <button id="downloadResult" disabled>Download Result</button>
+        </div>
+        
+        <div class="canvas-row">
+            <div class="canvas-item">
+                <label class="canvas-label">Input Image</label>
+                <div class="canvas-container">
+                    <canvas id="inputCanvas" width="512" height="512"></canvas>
+                </div>
+            </div>
+            
+            <div class="canvas-item">
+                <label class="canvas-label">Mask (Draw here)</label>
+                <div class="canvas-container">
+                    <canvas id="maskCanvas" width="512" height="512"></canvas>
+                </div>
+                <div class="brush-controls">
+                    <span class="brush-size-label">Brush Size:</span>
+                    <input type="range" id="brushSize" min="5" max="50" value="20">
+                    <span id="brushSizeValue">20px</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="canvas-item">
+            <label class="canvas-label">Result</label>
+            <div class="canvas-container">
+                <canvas id="outputCanvas" width="512" height="512"></canvas>
+            </div>
+        </div>
+        
+        <div id="status">Status: Please load an image and the model to begin</div>
+    </div>
+    
+    <div class="loading" id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+    
+    <footer>
+        <p>Powered by <a href="https://github.com/advimman/lama" target="_blank">LaMa (Large Mask Inpainting)</a> and TensorFlow.js</p>
+        <p>&copy; 2023 AI Image Restoration Tool</p>
+    </footer>
+
+    <script>
+        // Global variables
+        let model;
+        let isDrawing = false;
+        let inputImage = null;
+        let brushSize = 20;
+        let modelLoaded = false;
+        let lastX, lastY;
+        
+        // Elements
+        const inputCanvas = document.getElementById('inputCanvas');
+        const inputCtx = inputCanvas.getContext('2d');
+        const maskCanvas = document.getElementById('maskCanvas');
+        const maskCtx = maskCanvas.getContext('2d');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const outputCtx = outputCanvas.getContext('2d');
+        const statusElement = document.getElementById('status');
+        const brushSizeInput = document.getElementById('brushSize');
+        const brushSizeValue = document.getElementById('brushSizeValue');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadModelBtn = document.getElementById('loadModel');
+        const runInferenceBtn = document.getElementById('runInference');
+        const clearMaskBtn = document.getElementById('clearMask');
+        const downloadBtn = document.getElementById('downloadResult');
+        
+        // Initialize mask canvas
+        maskCtx.fillStyle = 'white';
+        maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        
+        // Adjust canvas resolution based on device pixel ratio
+        function setupCanvas(canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            return ctx;
+        }
+        
+        // Show loading overlay
+        function showLoading() {
+            loadingOverlay.classList.add('active');
+        }
+        
+        // Hide loading overlay
+        function hideLoading() {
+            loadingOverlay.classList.remove('active');
+        }
+        
+        // Setup drawing listeners for mouse events
+        maskCanvas.addEventListener('mousedown', startDrawing);
+        maskCanvas.addEventListener('mousemove', draw);
+        window.addEventListener('mouseup', stopDrawing);
+        
+        // Setup drawing listeners for touch events
+        maskCanvas.addEventListener('touchstart', handleTouchStart);
+        maskCanvas.addEventListener('touchmove', handleTouchMove);
+        maskCanvas.addEventListener('touchend', stopDrawing);
+        
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            maskCanvas.dispatchEvent(mouseEvent);
+        }
+        
+        function handleTouchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            maskCanvas.dispatchEvent(mouseEvent);
+        }
+        
+        function startDrawing(e) {
+            isDrawing = true;
+            const rect = maskCanvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+            draw(e);
+        }
+        
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            maskCtx.lineWidth = brushSize;
+            maskCtx.lineCap = 'round';
+            maskCtx.strokeStyle = 'black';
+            
+            const rect = maskCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Draw line from last position to current position
+            maskCtx.beginPath();
+            maskCtx.moveTo(lastX, lastY);
+            maskCtx.lineTo(x, y);
+            maskCtx.stroke();
+            
+            lastX = x;
+            lastY = y;
+        }
+        
+        function stopDrawing() {
+            isDrawing = false;
+        }
+        
+        // Update brush size value display
+        brushSizeInput.addEventListener('input', () => {
+            brushSize = parseInt(brushSizeInput.value);
+            brushSizeValue.textContent = `${brushSize}px`;
+        });
+        
+        // Handle file input
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            showLoading();
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                inputImage = new Image();
+                inputImage.onload = function() {
+                    // Calculate aspect ratio to maintain when drawing
+                    const aspectRatio = inputImage.width / inputImage.height;
+                    
+                    // Clear canvases
+                    clearCanvases();
+                    
+                    // Draw image on input canvas
+                    inputCtx.drawImage(inputImage, 0, 0, inputCanvas.width, inputCanvas.height);
+                    
+                    statusElement.textContent = 'Status: Image loaded. Draw a mask and run inpainting.';
+                    clearMaskBtn.disabled = false;
+                    
+                    if (modelLoaded) {
+                        runInferenceBtn.disabled = false;
+                    }
+                    
+                    hideLoading();
+                };
+                inputImage.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        // Clear mask
+        clearMaskBtn.addEventListener('click', clearMask);
+        
+        function clearMask() {
+            maskCtx.fillStyle = 'white';
+            maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        }
+        
+        function clearCanvases() {
+            // Clear input canvas
+            inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+            
+            // Clear mask canvas
+            clearMask();
+            
+            // Clear output canvas
+            outputCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+        }
+        
+        // Load model
+        loadModelBtn.addEventListener('click', async () => {
+            statusElement.textContent = 'Status: Loading model...';
+            showLoading();
+            
+            try {
+                model = await tf.loadLayersModel('model.json');
+                modelLoaded = true;
+                statusElement.textContent = 'Status: Model loaded successfully!';
+                
+                // Enable run button only if an image is loaded
+                if (inputImage) {
+                    runInferenceBtn.disabled = false;
+                }
+                
+                loadModelBtn.textContent = 'Model Loaded';
+                loadModelBtn.disabled = true;
+            } catch (error) {
+                console.error('Error loading model:', error);
+                statusElement.textContent = 'Status: Error loading model: ' + error.message;
+            } finally {
+                hideLoading();
+            }
+        });
+        
+        // Run inference
+        runInferenceBtn.addEventListener('click', async () => {
+            if (!model) {
+                statusElement.textContent = 'Status: Please load the model first';
+                return;
+            }
+            
+            if (!inputImage) {
+                statusElement.textContent = 'Status: Please upload an image first';
+                return;
+            }
+            
+            statusElement.textContent = 'Status: Processing...';
+            showLoading();
+            
+            try {
+                // Get image data
+                const imageData = inputCtx.getImageData(0, 0, inputCanvas.width, inputCanvas.height);
+                
+                // Get mask data
+                const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+                
+                // Convert image data to tensors
+                const imageTensor = tf.browser.fromPixels(imageData)
+                    .toFloat()
+                    .div(255.0)
+                    .expandDims(0);
+                
+                // Process mask - inverting because white (255) should be 0 (unmasked) and black (0) should be 1 (masked)
+                const maskTensor = tf.browser.fromPixels(maskData, 1)
+                    .toFloat()
+                    .div(255.0)
+                    .sub(1.0)
+                    .mul(-1.0)
+                    .expandDims(0);
+                
+                // Run inference
+                const result = tf.tidy(() => {
+                    // Run the model
+                    return model.predict({
+                        'image': imageTensor,
+                        'mask': maskTensor
+                    });
+                });
+                
+                // Convert result to image
+                const outputData = await tf.browser.toPixels(
+                    result.squeeze().clipByValue(0, 1)
+                );
+                
+                // Display result
+                const outputImageData = new ImageData(
+                    outputData, 
+                    outputCanvas.width, 
+                    outputCanvas.height
+                );
+                
+                outputCtx.putImageData(outputImageData, 0, 0);
+                
+                // Clean up tensors
+                imageTensor.dispose();
+                maskTensor.dispose();
+                result.dispose();
+                
+                statusElement.textContent = 'Status: Inpainting completed';
+                downloadBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Error during inference:', error);
+                statusElement.textContent = 'Status: Error during inference: ' + error.message;
+            } finally {
+                hideLoading();
+            }
+        });
+        
+        // Download result
+        downloadBtn.addEventListener('click', () => {
+            if (outputCanvas.width === 0) return;
+            
+            const link = document.createElement('a');
+            link.download = 'inpainted-image.png';
+            link.href = outputCanvas.toDataURL('image/png');
+            link.click();
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (inputImage) {
+                // Redraw the input image to match new canvas size
+                inputCtx.drawImage(inputImage, 0, 0, inputCanvas.width, inputCanvas.height);
+            }
+        });
+        
+        // Initial setup
+        statusElement.textContent = 'Status: Please load an image and the model to begin';
+    </script>
+</body>
+</html>
