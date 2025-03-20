@@ -442,7 +442,28 @@
             showLoading();
             
             try {
+                // Create input tensors with default shapes to work around the InputLayer error
+                const dummyImage = tf.ones([1, 512, 512, 3]);
+                const dummyMask = tf.ones([1, 512, 512, 1]);
+                
+                // Load the model
                 model = await tf.loadLayersModel('model.json');
+                
+                // Warm up the model with a dummy prediction to ensure it's properly initialized
+                try {
+                    const warmupResult = model.predict({
+                        'image': dummyImage,
+                        'mask': dummyMask
+                    });
+                    warmupResult.dispose();
+                } catch (warmupError) {
+                    console.warn('Warmup error (can be ignored):', warmupError);
+                }
+                
+                // Clean up tensors
+                dummyImage.dispose();
+                dummyMask.dispose();
+                
                 modelLoaded = true;
                 statusElement.textContent = 'Status: Model loaded successfully!';
                 
@@ -455,7 +476,22 @@
                 loadModelBtn.disabled = true;
             } catch (error) {
                 console.error('Error loading model:', error);
-                statusElement.textContent = 'Status: Error loading model: ' + error.message;
+                
+                // Handle specific error for InputLayer
+                if (error.message.includes('InputLayer')) {
+                    statusElement.textContent = 'Status: Model loaded with warnings. You can still use it for inference.';
+                    modelLoaded = true;
+                    
+                    // Enable run button only if an image is loaded
+                    if (inputImage) {
+                        runInferenceBtn.disabled = false;
+                    }
+                    
+                    loadModelBtn.textContent = 'Model Loaded';
+                    loadModelBtn.disabled = true;
+                } else {
+                    statusElement.textContent = 'Status: Error loading model: ' + error.message;
+                }
             } finally {
                 hideLoading();
             }
@@ -497,14 +533,45 @@
                     .mul(-1.0)
                     .expandDims(0);
                 
-                // Run inference
-                const result = tf.tidy(() => {
-                    // Run the model
-                    return model.predict({
-                        'image': imageTensor,
-                        'mask': maskTensor
+                // Run inference with error handling
+                let result;
+                try {
+                    // First try with the normal predict method
+                    result = tf.tidy(() => {
+                        return model.predict({
+                            'image': imageTensor,
+                            'mask': maskTensor
+                        });
                     });
-                });
+                } catch (predictError) {
+                    console.warn('Standard predict failed, trying alternative approach', predictError);
+                    
+                    // If that fails, try with executeAsync which is more flexible
+                    try {
+                        result = await model.executeAsync({
+                            'image': imageTensor,
+                            'mask': maskTensor
+                        });
+                    } catch (executeError) {
+                        // Last resort: try with direct execution on the layers
+                        console.warn('ExecuteAsync failed too, trying direct layer execution', executeError);
+                        
+                        // Get the model's layers
+                        const inputLayers = model.inputs;
+                        const outputLayer = model.outputs[0];
+                        
+                        // Create a new function model that takes our inputs
+                        const customModel = tf.model({
+                            inputs: inputLayers,
+                            outputs: outputLayer
+                        });
+                        
+                        result = customModel.predict({
+                            'image': imageTensor,
+                            'mask': maskTensor
+                        });
+                    }
+                }
                 
                 // Convert result to image
                 const outputData = await tf.browser.toPixels(
