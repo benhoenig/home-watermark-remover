@@ -1,9 +1,10 @@
 {
-  "name": "lama-inpainting-app",
+  "name": "home-watermark-remover-lamamodel",
   "version": "1.0.0",
-  "description": "LaMa Inpainting with TensorFlow.js",
+  "description": "LaMa Inpainting with TensorFlow.js for Watermark Removal",
   "scripts": {
-    "start": "serve ."
+    "start": "serve .",
+    "vercel-build": "echo 'Static build complete'"
   },
   "dependencies": {
     "serve": "^14.2.0"
