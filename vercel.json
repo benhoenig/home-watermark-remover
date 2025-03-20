@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "lama-inpainting",
+  "name": "home-watermark-remover-lamamodel",
   "builds": [
     {
       "src": "package.json",
@@ -8,12 +8,6 @@
       "config": {
         "distDir": "."
       }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
     }
   ],
   "headers": [
